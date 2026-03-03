@@ -19,3 +19,8 @@ lib/
 *.log
 .env
 node_modules
+# Salida de compilación (Vite/TypeScript)
+dist/
+
+# Archivos de entorno y secretos
+.env*
