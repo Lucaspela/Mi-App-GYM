@@ -1,0 +1,5 @@
+{
+  "name": "GymFlow",
+  "description": "A gym management web application similar to CrossHero, featuring class scheduling and reservations.",
+  "requestFramePermissions": []
+}
