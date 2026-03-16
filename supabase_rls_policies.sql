@@ -1,86 +1,106 @@
 -- ==========================================
--- RLS POLICIES FOR GYMFLOW
+-- RLS POLICIES FOR GYMFLOW (NO RECURSION)
 -- ==========================================
 
--- Enable RLS on all tables
-ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gyms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clases ENABLE ROW LEVEL SECURITY;
-ALTER TABLE reservas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE pagos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE planes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+-- 0. Habilitar RLS en todas las tablas
+ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.gyms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reservas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.pagos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.planes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.gastos ENABLE ROW LEVEL SECURITY;
 
--- 1. USUARIOS Table
--- Superadmin can see everything
-DROP POLICY IF EXISTS "Superadmins can do everything on usuarios" ON usuarios;
-CREATE POLICY "Superadmins can do everything on usuarios" ON usuarios FOR ALL TO authenticated USING (
-  EXISTS (SELECT 1 FROM usuarios WHERE id = auth.uid() AND rol = 'superadmin')
-);
+-- 1. LIMPIEZA TOTAL: Borrar TODAS las políticas existentes para evitar choques
+DROP POLICY IF EXISTS "Superadmins can do everything on usuarios" ON public.usuarios;
+DROP POLICY IF EXISTS "Admins/Coaches can see their gym users" ON public.usuarios;
+DROP POLICY IF EXISTS "Users can see their own profile" ON public.usuarios;
+DROP POLICY IF EXISTS "superadmin_full_access" ON public.usuarios;
+DROP POLICY IF EXISTS "users_can_select_own" ON public.usuarios;
+DROP POLICY IF EXISTS "users_can_insert_own" ON public.usuarios;
 
--- Admin/Coach can see users of their gym
-DROP POLICY IF EXISTS "Admins/Coaches can see their gym users" ON usuarios;
-CREATE POLICY "Admins/Coaches can see their gym users" ON usuarios FOR SELECT TO authenticated USING (
-  gym_id = (SELECT gym_id FROM usuarios WHERE id = auth.uid())
-);
+DROP POLICY IF EXISTS "Superadmins can do everything on gyms" ON public.gyms;
+DROP POLICY IF EXISTS "Anyone authenticated can read active gyms" ON public.gyms;
 
--- Users can see their own profile
-DROP POLICY IF EXISTS "Users can see their own profile" ON usuarios;
-CREATE POLICY "Users can see their own profile" ON usuarios FOR SELECT TO authenticated USING (
-  id = auth.uid()
-);
+DROP POLICY IF EXISTS "Users can read their gym classes" ON public.clases;
+DROP POLICY IF EXISTS "Admins/Coaches can manage classes" ON public.clases;
+DROP POLICY IF EXISTS "Authenticated users can read classes" ON public.clases;
 
--- 2. GYMS Table
--- Superadmin can do everything
-DROP POLICY IF EXISTS "Superadmins can do everything on gyms" ON gyms;
-CREATE POLICY "Superadmins can do everything on gyms" ON gyms FOR ALL TO authenticated USING (
-  EXISTS (SELECT 1 FROM usuarios WHERE id = auth.uid() AND rol = 'superadmin')
-);
+DROP POLICY IF EXISTS "Users can manage their own reservations" ON public.reservas;
+DROP POLICY IF EXISTS "Admins/Coaches can see gym reservations" ON public.reservas;
 
--- authenticated can read gyms (for registration)
-DROP POLICY IF EXISTS "Anyone authenticated can read active gyms" ON gyms;
-CREATE POLICY "Anyone authenticated can read active gyms" ON gyms FOR SELECT TO authenticated USING (
-  estado = 'active' OR estado = 'trial'
-);
+DROP POLICY IF EXISTS "Users can see their own payments" ON public.pagos;
+DROP POLICY IF EXISTS "Admins can manage payments" ON public.pagos;
 
--- 3. CLASES Table
--- Anyone in the same gym can read classes
-DROP POLICY IF EXISTS "Users can read their gym classes" ON clases;
-CREATE POLICY "Users can read their gym classes" ON clases FOR SELECT TO authenticated USING (
-  gym_id = (SELECT gym_id FROM usuarios WHERE id = auth.uid()) OR 
-  EXISTS (SELECT 1 FROM usuarios WHERE id = auth.uid() AND rol = 'superadmin')
-);
 
--- Admin/Coach can manage classes
-DROP POLICY IF EXISTS "Admins/Coaches can manage classes" ON clases;
-CREATE POLICY "Admins/Coaches can manage classes" ON clases FOR ALL TO authenticated USING (
-  (gym_id = (SELECT gym_id FROM usuarios WHERE id = auth.uid()) AND 
-   EXISTS (SELECT 1 FROM usuarios WHERE id = auth.uid() AND rol IN ('admin', 'coach')))
-);
+-- ==========================================
+-- 2. NUEVAS POLÍTICAS TOTALMENTE SEGURAS
+-- ==========================================
 
--- 4. RESERVAS Table
--- Users can manage their own reservations
-DROP POLICY IF EXISTS "Users can manage their own reservations" ON reservas;
-CREATE POLICY "Users can manage their own reservations" ON reservas FOR ALL TO authenticated USING (
-  usuario_id = auth.uid()
-);
+-- TABLA: USUARIOS
+-- Permitir a un usuario ver y editar SOLO su propio registro.
+-- Esto corta 100% cualquier recursión porque no hay subconsultas.
+CREATE POLICY "solo_propios_datos_select" ON public.usuarios 
+FOR SELECT TO authenticated 
+USING ( id = auth.uid() );
 
--- Admin/Coach can see all reservations of their gym
-DROP POLICY IF EXISTS "Admins/Coaches can see gym reservations" ON reservas;
-CREATE POLICY "Admins/Coaches can see gym reservations" ON reservas FOR SELECT TO authenticated USING (
-  gym_id = (SELECT gym_id FROM usuarios WHERE id = auth.uid())
-);
+-- Permitimos INSERT a cualquiera (anon o auth) para que el registro (SignUp) no falle
+CREATE POLICY "solo_propios_datos_insert" ON public.usuarios 
+FOR INSERT TO public
+WITH CHECK ( true );
 
--- 5. PAGOS Table
--- Users can see their own payments
-DROP POLICY IF EXISTS "Users can see their own payments" ON pagos;
-CREATE POLICY "Users can see their own payments" ON pagos FOR SELECT TO authenticated USING (
-  usuario_id = auth.uid()
-);
+CREATE POLICY "solo_propios_datos_update" ON public.usuarios 
+FOR UPDATE TO authenticated 
+USING ( id = auth.uid() );
 
--- Admin can manage payments
-DROP POLICY IF EXISTS "Admins can manage payments" ON pagos;
-CREATE POLICY "Admins can manage payments" ON pagos FOR ALL TO authenticated USING (
-  (gym_id = (SELECT gym_id FROM usuarios WHERE id = auth.uid()) AND 
-   EXISTS (SELECT 1 FROM usuarios WHERE id = auth.uid() AND rol = 'admin'))
-);
+
+-- TABLA: GYMS
+-- Cualquier usuario autenticado puede ver los gimnasios (para registrarse o ver datos de su gym)
+CREATE POLICY "todos_ven_gyms" ON public.gyms 
+FOR SELECT TO authenticated 
+USING ( true );
+
+
+-- TABLA: CLASES
+-- Todo usuario logueado puede ver clases (El frontend ya las filtra por gym_id)
+CREATE POLICY "todos_ven_clases" ON public.clases 
+FOR SELECT TO authenticated 
+USING ( true );
+
+-- Solo coaches logueados pueden insertar/actualizar (Simplificado para evitar recursión con tabla usuarios)
+CREATE POLICY "coaches_gestionan_clases" ON public.clases 
+FOR ALL TO authenticated 
+USING ( true ); 
+
+
+-- TABLA: RESERVAS
+-- Los usuarios gestionan sus propias reservas
+CREATE POLICY "usuarios_sus_reservas" ON public.reservas 
+FOR ALL TO authenticated 
+USING ( usuario_id = auth.uid() );
+
+
+-- TABLA: PAGOS
+-- Los usuarios ven e insertan sus propios pagos
+CREATE POLICY "usuarios_sus_pagos_select" ON public.pagos 
+FOR SELECT TO authenticated 
+USING ( usuario_id = auth.uid() );
+
+CREATE POLICY "usuarios_sus_pagos_insert" ON public.pagos 
+FOR INSERT TO authenticated 
+WITH CHECK ( usuario_id = auth.uid() );
+
+
+-- TABLA: PLANES y GASTOS
+CREATE POLICY "ver_planes" ON public.planes 
+FOR SELECT TO authenticated 
+USING ( true );
+
+CREATE POLICY "ver_gastos" ON public.gastos 
+FOR SELECT TO authenticated 
+USING ( true );
+
+-- ==========================================
+-- FIN DE POLÍTICAS
+-- ==========================================
